@@ -18,6 +18,7 @@
 #include<memory>
 #include<stdint.h>
 #include<numeric>
+#include <utility>
 
 namespace cnpy {
 
@@ -59,7 +60,7 @@ namespace cnpy {
         bool fortran_order;
         size_t num_vals;
     };
-   
+
     using npz_t = std::map<std::string, NpyArray>; 
 
     char BigEndianTest();
@@ -71,6 +72,7 @@ namespace cnpy {
     npz_t npz_load(std::string fname);
     NpyArray npz_load(std::string fname, std::string varname);
     NpyArray npy_load(std::string fname);
+    std::pair<bool, std::vector<size_t>> npz_load_shape(std::string const& fname, std::string const& varname);
 
     template<typename T> std::vector<char>& operator+=(std::vector<char>& lhs, const T rhs) {
         //write in little endian

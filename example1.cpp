@@ -46,10 +46,27 @@ int main()
 
     //load the entire npz file
     cnpy::npz_t my_npz = cnpy::npz_load("out.npz");
-    
+
     //check that the loaded myVar1 matches myVar1
     cnpy::NpyArray arr_mv1 = my_npz["myVar1"];
     double* mv1 = arr_mv1.data<double>();
     assert(arr_mv1.shape.size() == 1 && arr_mv1.shape[0] == 1);
     assert(mv1[0] == myVar1);
+
+    auto x1  = cnpy::npz_load_shape("out.npz", "myVar1");
+    assert(x1.first);
+    assert(x1.second.size() == 1);
+    assert(x1.second == std::vector<size_t>({1}));
+    auto x2 = cnpy::npz_load_shape("out.npz", "arr1");
+    assert(x2.first);
+    assert(x2.second.size() == 3);
+    assert(x2.second == std::vector<size_t>({Nz, Ny, Nx}));
+    auto x3 = cnpy::npz_load_shape("out.npz", "myVar3"); // doesn't exist
+    assert(!x3.first);
+    assert(x3.second.size() == 0);
+    auto x4  = cnpy::npz_load_shape("out.npz", "myVar2");
+    assert(x4.first);
+    assert(x4.second.size() == 1);
+    assert(x4.second == std::vector<size_t>({1}));
+
 }

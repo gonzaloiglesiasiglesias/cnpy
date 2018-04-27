@@ -187,6 +187,50 @@ cnpy::NpyArray load_the_npy_file(FILE* fp) {
     return arr;
 }
 
+cnpy::NpyArray load_the_npy_shape(FILE* fp) {
+    std::vector<size_t> shape;
+    size_t word_size;
+    bool fortran_order;
+    cnpy::parse_npy_header(fp,word_size,shape,fortran_order);
+    cnpy::NpyArray arr(shape, word_size, fortran_order);
+    return arr;
+}
+
+cnpy::NpyArray load_the_npz_shape(FILE* fp, uint32_t compr_bytes, uint32_t uncompr_bytes) {
+
+    std::vector<unsigned char> buffer_compr(compr_bytes);
+    std::vector<unsigned char> buffer_uncompr(uncompr_bytes);
+    size_t nread = fread(&buffer_compr[0],1,compr_bytes,fp);
+    if(nread != compr_bytes)
+        throw std::runtime_error("load_the_npy_file: failed fread");
+
+    int err;
+    z_stream d_stream;
+
+    d_stream.zalloc = Z_NULL;
+    d_stream.zfree = Z_NULL;
+    d_stream.opaque = Z_NULL;
+    d_stream.avail_in = 0;
+    d_stream.next_in = Z_NULL;
+    err = inflateInit2(&d_stream, -MAX_WBITS);
+
+    d_stream.avail_in = compr_bytes;
+    d_stream.next_in = &buffer_compr[0];
+    d_stream.avail_out = uncompr_bytes;
+    d_stream.next_out = &buffer_uncompr[0];
+
+    err = inflate(&d_stream, Z_FINISH);
+    err = inflateEnd(&d_stream);
+
+    std::vector<size_t> shape;
+    size_t word_size;
+    bool fortran_order;
+    cnpy::parse_npy_header(&buffer_uncompr[0],word_size,shape,fortran_order);
+
+    cnpy::NpyArray array(shape, word_size, fortran_order);
+    return array;
+}
+
 cnpy::NpyArray load_the_npz_array(FILE* fp, uint32_t compr_bytes, uint32_t uncompr_bytes) {
 
     std::vector<unsigned char> buffer_compr(compr_bytes);
@@ -272,7 +316,56 @@ cnpy::npz_t cnpy::npz_load(std::string fname) {
     }
 
     fclose(fp);
-    return arrays;  
+    return arrays;
+}
+
+std::pair<bool, std::vector<size_t>> cnpy::npz_load_shape(std::string const& fname, std::string const& varname) {
+    FILE* fp = fopen(fname.c_str(),"rb");
+
+    if(!fp) {
+        throw std::runtime_error("npz_load_shape: Error! Unable to open file " + fname);
+    }
+
+    while(1) {
+        std::vector<char> local_header(30);
+        size_t header_res = fread(&local_header[0],sizeof(char),30,fp);
+        if(header_res != 30)
+            throw std::runtime_error("npz_load_shape: failed fread");
+
+        //if we've reached the global header, stop reading
+        if(local_header[2] != 0x03 || local_header[3] != 0x04) break;
+
+        //read in the variable name
+        uint16_t name_len = *(uint16_t*) &local_header[26];
+        std::string vname(name_len,' ');
+        size_t vname_res = fread(&vname[0],sizeof(char),name_len,fp);
+        if(vname_res != name_len)
+            throw std::runtime_error("npz_load_shape: failed fread");
+        vname.erase(vname.end()-4,vname.end()); //erase the lagging .npy
+
+        //read in the extra field
+        uint16_t extra_field_len = *(uint16_t*) &local_header[28];
+        fseek(fp,extra_field_len,SEEK_CUR); //skip past the extra field
+
+        uint16_t compr_method = *reinterpret_cast<uint16_t*>(&local_header[0]+8);
+        uint32_t compr_bytes = *reinterpret_cast<uint32_t*>(&local_header[0]+18);
+        uint32_t uncompr_bytes = *reinterpret_cast<uint32_t*>(&local_header[0]+22);
+
+        if(vname == varname)  {
+          NpyArray array  = (compr_method == 0) ? load_the_npy_shape(fp) : load_the_npz_shape(fp,compr_bytes,uncompr_bytes);
+          fclose(fp);
+          return std::make_pair(true, array.shape);
+        }
+        else {
+            //skip past the data
+            size_t size = *(uint32_t*) &local_header[22];
+            fseek(fp,size,SEEK_CUR);
+        }
+    }
+
+    fclose(fp);
+    return std::make_pair(false,  std::vector<size_t>());
+
 }
 
 cnpy::NpyArray cnpy::npz_load(std::string fname, std::string varname) {
@@ -280,7 +373,7 @@ cnpy::NpyArray cnpy::npz_load(std::string fname, std::string varname) {
 
     if(!fp) {
         throw std::runtime_error("npz_load: Error! Unable to open file " + fname);
-    }       
+    }
 
     while(1) {
         std::vector<char> local_header(30);
@@ -302,7 +395,7 @@ cnpy::NpyArray cnpy::npz_load(std::string fname, std::string varname) {
         //read in the extra field
         uint16_t extra_field_len = *(uint16_t*) &local_header[28];
         fseek(fp,extra_field_len,SEEK_CUR); //skip past the extra field
-        
+
         uint16_t compr_method = *reinterpret_cast<uint16_t*>(&local_header[0]+8);
         uint32_t compr_bytes = *reinterpret_cast<uint32_t*>(&local_header[0]+18);
         uint32_t uncompr_bytes = *reinterpret_cast<uint32_t*>(&local_header[0]+22);
